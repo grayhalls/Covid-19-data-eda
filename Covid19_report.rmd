@@ -13,9 +13,11 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 
 ## Introduction
 
-This report will dive into data from Covid19 including the number of cases and deaths in different locations and over time. This dataset is from the Johns Hopkins Github site. 
+This report offers a detailed analysis of COVID-19 data sourced from the Johns Hopkins University GitHub repository, focusing on the number of cases and deaths across various geographic locations and over different time periods. By delving into this comprehensive dataset, our objective is to explore and quantify the relationship between the incidence of COVID-19 cases and the resulting deaths. *We aim to understand if a higher number of reported cases in a region correlates with an increased number of deaths, which could provide critical insights into the deadly effect of the virus in different environments and under various conditions.* This analysis is not only pivotal for public health officials and policymakers but also for the general public as it sheds light on the dynamics of the pandemic's impact across the globe. Through visual and statistical methods, this report will examine trends, patterns, and correlations to better understand how the virus has spread and affected populations differently.
 
 The main question we are looking at is the relationship between the number of cases and deaths in different locations and are they correlated.
+
+You can find the .Rmd file in this Github repo: https://github.com/grayhalls/Covid-19-data-eda/blob/master/Covid19_report.rmd
 
 **This file uses tidyverse and lubridate, so confirm that those packages are installed on your machine before running.**
 
@@ -178,7 +180,7 @@ US_totals <- US_totals %>%
 
 <br><br>
 
-Next, we want to look at the number of new cases and new deaths by day in both the US and Colorado. These will be plotted on a log scale to better see patterns.
+Next, we want to look at the number of new cases and new deaths by day in both the US and Colorado. These will be plotted on a log scale to better see patterns. We also look at a heatmap showing how death rates varied over time across different states. The color intensity represents the magnitude of deaths.
 
 ```{r daily new cases visuals}
 US_totals %>%
@@ -204,6 +206,11 @@ US_by_state %>%
         axis.text.x = element_text(angle = 90)) +
   labs(title = str_c("Daily COVID-19 New Cases and Deaths in ", state, "(log scale)"), y = NULL)
 
+ggplot(US_by_state, aes(x = date, y = Province_State, fill = deaths_per_mill)) +
+    geom_tile() +
+    scale_fill_gradient(low = "blue", high = "red") +
+    labs(title = "Heatmap of COVID-19 Deaths per Million by State and Date")
+
 
 US_state_totals <- US_by_state %>%
   group_by(Province_State) %>%
@@ -222,6 +229,8 @@ head(US_state_totals)
 ### Modeling the Data
 
 All of the previous visuals indicate a correlation between number of cases and number of deaths, both in the US at large and in Colorado. Therefore, we want to test that correlation statistically to see if the number of cases is predictive of the number of deaths. To do this, we will set up a simple linear regression using the US_state_totals dataframe, which you can see above. We will use cases_per_thou and deaths_per_thou.
+
+We attempted to include population as a factor, but it has a high p-value indicating that population was not statistically significant.
 
 ```{r model}
 mod <- lm(deaths_per_thou ~ cases_per_thou, data = US_state_totals)
