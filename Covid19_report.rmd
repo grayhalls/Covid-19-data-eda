@@ -1,0 +1,256 @@
+---
+title: "COVID19 Report"
+author: "Holly Nereson"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+<br><br>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+## Introduction
+
+This report will dive into data from Covid19 including the number of cases and deaths in different locations and over time. This dataset is from the Johns Hopkins Github site. 
+
+The main question we are looking at is the relationship between the number of cases and deaths in different locations and are they correlated.
+
+**This file uses tidyverse and lubridate, so confirm that those packages are installed on your machine before running.**
+
+```{r data import}
+library(tidyverse)
+library(lubridate)
+
+# Load the data from the URL
+covid_url <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+
+# File names
+files <- c("time_series_covid19_confirmed_US.csv", 
+           "time_series_covid19_confirmed_global.csv",
+           "time_series_covid19_deaths_US.csv", 
+           "time_series_covid19_deaths_global.csv")
+
+# Function to create full URL and read data
+read_covid_data <- str_c(covid_url,files)
+
+# Importing data
+confirmed_US <- read_csv(read_covid_data[1])
+confirmed_global <- read_csv(read_covid_data[2])
+deaths_US <- read_csv(read_covid_data[3])
+deaths_global <- read_csv(read_covid_data[4])
+```
+
+### Cleaning the Data
+
+We are tidying the data since these are 4 different datasets. We want to create 2 datasets, one for global and another for the US which can be comparable. Therefore, we are creating each dataset to have these columns: Province_State, Country_Region, date, cases, deaths, Population, and Combined_Key.
+
+```{r cleaning data}
+# Cleaning
+confirmed_global <- confirmed_global %>% 
+    pivot_longer(cols = -c('Province/State',
+                           'Country/Region', Lat, Long),
+                 names_to = "date",
+                 values_to = "cases") %>%
+    select(-c(Lat,Long))
+
+deaths_global <- deaths_global %>% 
+  pivot_longer(cols = -c('Province/State',
+                         'Country/Region', Lat, Long),
+               names_to = "date",
+               values_to = "deaths") %>%
+  select(-c(Lat,Long))
+
+global <- confirmed_global %>%
+  full_join(deaths_global) %>%
+  rename(Country_Region = 'Country/Region',
+         Province_State = 'Province/State') %>%
+  mutate(date = mdy(date))
+  
+confirmed_US <- confirmed_US %>% 
+  pivot_longer(cols = -c(UID:Combined_Key),
+               names_to = "date",
+               values_to = "cases") %>%
+  select(Admin2:cases) %>%
+  mutate(date = mdy(date)) %>%
+  select(-c(Lat,Long_))  
+
+deaths_US <- deaths_US %>% 
+  pivot_longer(cols = -c(UID:Population),
+               names_to = "date",
+               values_to = "deaths") %>%
+  select(Admin2:deaths) %>%
+  mutate(date = mdy(date)) %>%
+  select(-c(Lat,Long_))  
+
+US <- confirmed_US %>%
+  full_join(deaths_US)
+
+global <- global %>% filter(cases > 0)
+
+global <- global %>%
+  unite("Combined_Key",
+        c(Province_State, Country_Region),
+        sep = ", ",
+        na.rm = TRUE,
+        remove = FALSE)
+
+uid_lookup_url <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv"
+
+uid <- read_csv(uid_lookup_url) %>%
+  select(-c(Lat, Long_, Combined_Key, code3, iso2, iso3, Admin2))
+
+global <- global %>%
+  left_join(uid, by = c("Province_State", "Country_Region")) %>%
+  select(-c(UID, FIPS)) %>%
+  select(Province_State, Country_Region, date,
+         cases, deaths, Population, Combined_Key)
+
+head(global)
+
+head(US)
+```
+
+<br><br>
+
+### Visualizing Data
+
+In this section, we examine the progression of COVID-19 cases and deaths over time across the United States and specifically in Colorado. We utilize data that tracks the number of cases and fatalities, converting these figures to rates per million to standardize across varying population sizes. Through detailed visualizations, we aim to uncover patterns and trends in the spread of the virus and its lethal impact. These visuals will help us better understand how the virus has affected different regions over time and provide a clear depiction of the relationship between case rates and death rates.
+
+```{r visualize}
+US_by_state <- US %>%
+  group_by(Province_State, Country_Region, date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths),
+            Population = sum(Population)) %>%
+  mutate(deaths_per_mill = deaths *1000000 / Population) %>%
+  select(Province_State, Country_Region, date, cases, deaths, deaths_per_mill, Population) %>%
+  ungroup()
+
+US_totals <- US_by_state %>%
+  group_by(Country_Region, date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths),
+            Population = sum(Population)) %>%
+  mutate(deaths_per_mill = deaths *1000000 / Population) %>%
+  select(Country_Region, date, cases, deaths, deaths_per_mill, Population) %>%
+  ungroup()
+
+# plot of us cases and deaths over time
+US_totals %>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date, y = cases)) +
+  geom_line(aes(color = "cases")) + 
+  geom_point(aes(color = "cases")) +
+  geom_line(aes(y = deaths, color = "deaths")) +
+  geom_point(aes(y = deaths, color = "deaths")) +
+  scale_y_log10() +
+  theme(legend.position="bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID19 in US", y= NULL)
+
+# plot of NY cases and deaths over time
+state <- "Colorado"
+US_by_state %>%
+  filter(Province_State == state) %>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date, y = cases)) +
+  geom_line(aes(color = "cases")) + 
+  geom_point(aes(color = "cases")) +
+  geom_line(aes(y = deaths, color = "deaths")) +
+  geom_point(aes(y = deaths, color = "deaths")) +
+  scale_y_log10() +
+  theme(legend.position="bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = str_c("COVID19 in ", state), y= NULL)
+
+US_by_state <- US_by_state %>%
+  group_by(Province_State) %>%
+  mutate(new_cases = cases - lag(cases),
+         new_deaths = deaths - lag(deaths)) %>%
+  ungroup()
+
+US_totals <- US_totals %>%
+  group_by(Country_Region) %>%
+  mutate(new_cases = cases - lag(cases),
+         new_deaths = deaths - lag(deaths)) %>%
+  ungroup()
+```
+
+<br><br>
+
+Next, we want to look at the number of new cases and new deaths by day in both the US and Colorado. These will be plotted on a log scale to better see patterns.
+
+```{r daily new cases visuals}
+US_totals %>%
+  ggplot(aes(x = date, y = new_cases)) +
+  geom_line(aes(color = "new_cases")) + 
+  geom_point(aes(color = "new_cases")) +
+  geom_line(aes(y = new_deaths, color = "new_deaths")) +
+  geom_point(aes(y = new_deaths, color = "new_deaths")) +
+  scale_y_log10() +
+  theme(legend.position="bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "Daily COVID-19 in US (log scale)", y= NULL)
+
+US_by_state %>%
+  filter(Province_State == state) %>%
+  ggplot(aes(x = date, y = new_cases)) +
+  geom_line(aes(color = "new_cases")) + 
+  geom_point(aes(color = "new_cases")) +
+  geom_line(aes(y = new_deaths, color = "new_deaths")) +
+  geom_point(aes(y = new_deaths, color = "new_deaths")) +
+  scale_y_log10() +
+  theme(legend.position="bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = str_c("Daily COVID-19 New Cases and Deaths in ", state, "(log scale)"), y = NULL)
+
+
+US_state_totals <- US_by_state %>%
+  group_by(Province_State) %>%
+  summarize(deaths = max(deaths), cases = max(cases),
+            population = max(Population),
+            cases_per_thou = 1000 * cases / population,
+            deaths_per_thou = 1000 * deaths / population) %>%
+  filter(cases > 0, population > 0)
+
+US_state_totals %>%
+  slice_min(deaths_per_thou, n=10)
+
+head(US_state_totals)
+```
+
+### Modeling the Data
+
+All of the previous visuals indicate a correlation between number of cases and number of deaths, both in the US at large and in Colorado. Therefore, we want to test that correlation statistically to see if the number of cases is predictive of the number of deaths. To do this, we will set up a simple linear regression using the US_state_totals dataframe, which you can see above. We will use cases_per_thou and deaths_per_thou.
+
+```{r model}
+mod <- lm(deaths_per_thou ~ cases_per_thou, data = US_state_totals)
+summary(mod)
+
+US_tot_w_pred <- US_state_totals %>% mutate(pred = predict(mod))
+
+US_tot_w_pred %>% ggplot() +
+  geom_point(aes(x = cases_per_thou, y = deaths_per_thou), color = "blue") +
+  geom_point(aes(x = cases_per_thou, y = pred), color = "red")
+```
+
+### Conclusion 
+
+Our linear model shows a statistically significant relationship between the total number of cases per thousand people and the number of deaths per thousand people.The multiple R-squared value is `0.3061` which indicates that approximately 30.61% of the variability in deaths per thousand is explained by the model. With a p-value of `9.763e-06`, the model most likely is statistically significant.
+
+The coefficient for cases_per_thou is `0.01133`, with a standard error of `0.00232`. This coefficient is statistically significant (p-value = `9.76e-06`), indicating a positive relationship between the number of cases and the number of deaths. For every additional case per thousand people, there is an increase of about `0.01133` deaths per thousand people.
+
+From the graph, we can observe that generally the trend of deaths_per_thou increases as cases_per_thou increases. However, there is significant variability among the states.
+
+### Potential Areas of Bias
+
+Several potential areas of bias can be influencing the results.
+
+- **Reporting Inconsistencies:** This data relies heavily on the reliability in reporting among various testing sites and healthcare providers and across states. The timing of reporting could be delayed leading to a lag in the results.
+
+- **Confounding Variables:** This model is very simple, only including cases per thousand and deaths per thousand. However, there are many other factors that could be influencing death rates, such as access to healthcare, population density, public health policies, etc.
+
+- **Socioeconomic Factors:** Income level, access to healthcare, and employment types are not accounted for, but could significantly influence the spread of the virus and mortality rate.
+
+<br><br>
+<br><br>
